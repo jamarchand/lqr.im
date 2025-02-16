@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+ <!-- Version notes 
+ In v2, we change the displaeyed QR codes to uploaded image, extracted, generated
+ Remove some of the debugging 
+ In this version, we fix difference calculations and start adding UI polish
+ 
+ In V4 - We expand on the difference calculations 
+ -->
+
+<head>
+    <meta charset="UTF-8">
+    <title>LQR Scanner Demo</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .visualization-canvas {
+            /* Remove any border and shadow styling */
+            border: none;
+            box-shadow: none;
+            -webkit-box-shadow: none;
+            -moz-box-shadow: none;
+        }
+    </style>
+</head>
+<body>
+<h1>LQR Prototype v0.1</h1>
+
+<!-- Add the switch at the top -->
+<div class="switch-container" style="margin-bottom: 20px;">
+    <label class="switch">
+        <input type="checkbox" id="toggle-generated-pipeline" checked>
+        <span class="slider round"></span>
+    </label>
+    <span class="switch-label">Enable Full LQR pipeline</span>
+</div>
+
+<input type="file" id="file-selector">
+
+<details class="lqr-details" open>
+    <summary>LQR Image Analysis</summary>
+    <table class="visualization-table">
+        <tr>
+            <th>Uploaded Image</th>
+            <th>LQR</th>
+            <th>LQR (Unmasked)</th>
+            <th>genLQR</th>
+            <th>genLQR (Unmasked)</th>
+            <th>LQR Assay Results</th>
+        </tr>
+        <tr>
+            <td>
+                <img id="uploaded-preview" class="preview-image">
+            </td>
+            <td>
+                <canvas id="bitmap-canvas" width="210" height="210" class="visualization-canvas"></canvas>
+            </td>
+            <td>
+                <canvas id="unmasked-canvas" width="210" height="210" class="visualization-canvas"></canvas>
+            </td>
+            <td>
+                <img id="generated-image-preview" class="preview-image">
+            </td>
+            <td>
+                <canvas id="generated-unmasked-canvas" width="210" height="210" class="visualization-canvas"></canvas>
+            </td>
+            <td>
+                <canvas id="matrix-diff-canvas" width="210" height="210" class="visualization-canvas"></canvas>
+            </td>
+        </tr>
+    </table>
+</details>
+
+<details class="lqr-details" open>
+    <summary>LQR Processing</summary>
+    <div class="info-columns">
+        <div class="info-column">
+            <div class="info-item">
+                <b>Uploaded Image Dimensions: </b>
+                <span id="original-image-size">None</span>
+            </div>
+            <div class="info-item">
+                <b>Detected QR code: </b>
+                <span id="file-qr-result">None</span>
+            </div>
+            <div class="info-item">
+                <b>Version: </b>
+                <span id="qr-version">None</span>
+            </div>
+            <div class="info-item">
+                <b>Error Correction Level: </b>
+                <span id="qr-error-correction">None</span>
+            </div>
+            <div class="info-item">
+                <b>Mask Pattern: </b>
+                <span id="qr-mask-pattern">None</span>
+            </div>
+            <div class="info-item">
+                <b>QR Matrix Dimensions: </b>
+                <span id="matrix-dimensions">None</span>
+            </div>
+            <div class="info-item">
+                <b>Barcode Format: </b>
+                <span id="qr-format">None</span>
+            </div>
+            <div class="info-item">
+                <b>Corner Points: </b>
+                <span id="qr-corner-points">None</span>
+            </div>
+            <div class="info-item">
+                <b>Total bits: </b>
+                <span id="total_bits">None</span>
+            </div>
+            <div class="info-item">
+                <b>Performance Timing: </b>
+                <span id="performance-timing">None</span>
+            </div>
+        </div>
+
+        <div class="info-column">
+            <div class="info-item">
+                <b>Corrected Binary: </b>
+                <span id="raw-binary">None</span>
+            </div>
+            <div class="info-item">
+                <b>Corrected Bytes: </b>
+                <span id="qr-raw-bytes">None</span>
+            </div>
+            <div class="info-item">
+                <b>Corrected Binary Message: </b>
+                <span id="message-binary">None</span>
+            </div>
+            <div class="info-item">
+                <b>Corrected Bytes Message: </b>
+                <span id="qr-processed-bytes">None</span>
+            </div>
+            <div class="info-item">
+                <b>Encoding Mode: </b>
+                <span id="encoding-mode">None</span>
+            </div>
+            <div class="info-item">
+                <b>Encoding Type: </b>
+                <span id="encoding-type">None</span>
+            </div>
+            <div class="info-item">
+                <b>Message Length: </b>
+                <span id="message-length">None</span>
+            </div>
+            <div class="info-item">
+                <b>Terminator Bits: </b>
+                <span id="terminator-bits">None</span>
+            </div>
+            <div class="info-item">
+                <b>Padding Bits: </b>
+                <span id="padding-bits">None</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-item full-width">
+        <b>Debug Info: </b>
+        <pre id="qr-debug-info">None</pre>
+    </div>
+
+    <div>
+        <b>Format Info Details: </b>
+        <pre id="format-info-details">None</pre>
+    </div>
+    <div>
+        <h2>QR Code Generation Debug Info</h2>
+        <div>
+            <h3>Input Parameters:</h3>
+            <pre id="qr-generation-inputs">None</pre>
+        </div>
+        <div>
+            <h3>Generation Result:</h3>
+            <pre id="qr-generation-result">None</pre>
+        </div>
+    </div>
+</details>
+
+<details class="lqr-details" open>
+    <summary>LQR Results</summary>
+    <div>
+        <h3>Assay Hits:</h3>
+        <table class="visualization-table">
+            <tr>
+                <th>Assay +/- Matrix</th>
+            </tr>
+            <tr>
+                <td>
+                    <canvas id="signed-diff-canvas" width="210" height="210" class="visualization-canvas"></canvas>
+                </td>
+            </tr>
+        </table>
+        <div class="difference-coordinates">
+            <div class="info-item">
+                <b>Negative Assay Modules (Red):</b>
+                <span id="positive-differences">None</span>
+            </div>
+            <div class="info-item">
+                <b>Positive Assay Modules (Blue):</b>
+                <span id="negative-differences">None</span>
+            </div>
+        </div>
+    </div>
+</details>
+
+<script src="qr-scanner.umd.min.js"></script>
+<script>
+    // Add global error handler at the top of your script
+    window.addEventListener('error', function(event) {
+        console.error('Global error:', event.error);
+    });
+
+    // Add worker error handler
+    window.addEventListener('unhandledrejection', function(event) {
+        console.error('Unhandled promise rejection:', event.reason);
+    });
+
+    // Add this line to make debugging easier
+    if (typeof QrScanner === 'undefined') {
+        console.error('QrScanner library failed to load properly');
+    } else {
+        console.log('QrScanner library loaded successfully');
+    }
+
+    const fileSelector = document.getElementById('file-selector');
+    const fileQrResult = document.getElementById('file-qr-result');
+    const qrVersion = document.getElementById('qr-version');
+    const qrErrorCorrection = document.getElementById('qr-error-correction');
+    const qrMaskPattern = document.getElementById('qr-mask-pattern');
+    const qrFormat = document.getElementById('qr-format');
+    const qrCornerPoints = document.getElementById('qr-corner-points');
+    const qrRawBytes = document.getElementById('qr-raw-bytes');
+    const qrProcessedBytes = document.getElementById('qr-processed-bytes');
+    const qrDebugInfo = document.getElementById('qr-debug-info');
+    const workerLogsElement = document.getElementById('worker-logs');
+    const decodingStepsElement = document.getElementById('decoding-steps');
+    const performanceTimingElement = document.getElementById('performance-timing');
+    const matrixDimensions = document.getElementById('matrix-dimensions');
+    const encodingMode = document.getElementById('encoding-mode');
+    const encodingType = document.getElementById('encoding-type');
+    const messageLength = document.getElementById('message-length');
+    const terminatorBits = document.getElementById('terminator-bits');
+    const paddingBits = document.getElementById('padding-bits');
+
+    // Create an array to store worker logs
+    let workerLogs = [];
+
+    // Listen for worker logs
+    document.addEventListener('workerLog', (event) => {
+        const log = event.detail;
+        workerLogs.push(log);
+        
+        // Update the worker logs display
+        workerLogsElement.textContent = workerLogs
+            .map(log => `[${new Date(log.timestamp).toISOString()}] ${log.type}: ${JSON.stringify(log.data)}`)
+            .join('\n');
+    });
+
+    // Add a variable to store the original sampled matrix
+    let originalSampledMatrix = null;
+    let originalUnmaskedMatrix = null;
+
+    function renderBinaryBitmap(bitmapMatrix, targetCanvas = null) {
+        console.log('=== Starting Binary Bitmap Rendering ===');
+        
+        const canvas = targetCanvas || document.getElementById('bitmap-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Ensure we have valid data
+        if (!bitmapMatrix || !bitmapMatrix.length) {
+            console.error('Invalid bitmap matrix:', bitmapMatrix);
+            return;
+        }
+        
+        const matrixHeight = bitmapMatrix.length;
+        const matrixWidth = bitmapMatrix[0].length || 0;
+        
+        // Create ImageData object
+        const imageData = ctx.createImageData(matrixWidth, matrixHeight);
+        const data = imageData.data;
+        
+        // Fill the image data
+        for (let y = 0; y < matrixHeight; y++) {
+            for (let x = 0; x < matrixWidth; x++) {
+                const index = (y * matrixWidth + x) * 4;
+                const value = bitmapMatrix[y][x] ? 0 : 255; // 0 for black, 255 for white
+                
+                // Set RGBA values
+                data[index] = value;     // R
+                data[index + 1] = value; // G
+                data[index + 2] = value; // B
+                data[index + 3] = 255;   // A (fully opaque)
+            }
+        }
+        
+        // Clear canvas
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Create a temporary canvas for the matrix at its original size
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = matrixWidth;
+        tempCanvas.height = matrixHeight;
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        // Put the image data on the temporary canvas
+        tempCtx.putImageData(imageData, 0, 0);
+        
+        // Calculate scaling to fit in main canvas while maintaining aspect ratio
+        const scale = Math.min(
+            canvas.width / matrixWidth,
+            canvas.height / matrixHeight
+        );
+        
+        // Calculate centered position
+        const xOffset = (canvas.width - matrixWidth * scale) / 2;
+        const yOffset = (canvas.height - matrixHeight * scale) / 2;
+        
+        // Draw the scaled image to the main canvas
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(
+            tempCanvas,
+            xOffset, yOffset,
+            matrixWidth * scale,
+            matrixHeight * scale
+        );
+
+        // Read back the scaled image data
+        const scaledWidth = Math.round(matrixWidth * scale);
+        const scaledHeight = Math.round(matrixHeight * scale);
+        const scaledImageData = ctx.getImageData(xOffset, yOffset, scaledWidth, scaledHeight);
+        
+        // Convert to binary matrix (1 for black, 0 for white)
+        const scaledMatrix = [];
+        for (let y = 0; y < scaledHeight; y++) {
+            const row = [];
+            for (let x = 0; x < scaledWidth; x++) {
+                const index = (y * scaledWidth + x) * 4;
+                // Check if pixel is black (R, G, and B all close to 0)
+                const isBlack = scaledImageData.data[index] < 128;
+                row.push(isBlack ? 1 : 0);
+            }
+            scaledMatrix.push(row);
+        }
+
+        console.log('Original dimensions:', matrixWidth, 'x', matrixHeight);
+        console.log('Scaled dimensions:', scaledWidth, 'x', scaledHeight);
+        console.log('Scaled binary matrix:', scaledMatrix);
+    }
+    
+    function setResult(result) {
+        // Add debug messages array at the start of setResult
+        let debugMessages = [];
+
+        // Check if QR was detected
+        if (!result || !result.data) {
+            debugMessages.push("Error - Failed to detect LQR");
+        }
+
+        // Check version compatibility
+        if (result?.decoding_data?.rawData?.version !== 1) {
+            debugMessages.push("Error - Incompatible version with LQR detected");
+        }
+
+        // Store the error correction level for later comparison
+        window.uploadedECC = result?.decoding_data?.eccFormat;
+
+        // Update existing fields
+        fileQrResult.textContent = result.data;
+        qrVersion.textContent = result.decoding_data?.rawData?.version || 'Not available';
+        qrErrorCorrection.textContent = result.decoding_data?.eccFormat || 'Not available';
+        qrMaskPattern.textContent = result.decoding_data?.formatExtracted?.maskPattern ?? 'Not available';
+        
+        // Update new fields
+        qrFormat.textContent = result.decoding_data?.format || 'Not available';
+        if (result.decoding_data?.sampledMatrix) {
+            const matrix = result.decoding_data.sampledMatrix;
+            matrixDimensions.textContent = `${matrix.length}x${matrix[0].length} modules`;
+        } else if (result.decoding_data?.rawData?.version) {
+            // QR version formula: size = 21 + (version - 1) * 4
+            const version = result.decoding_data.rawData.version;
+            const size = 21 + (version - 1) * 4;
+            matrixDimensions.textContent = `${size}x${size} modules (Version ${version})`;
+        } else {
+            matrixDimensions.textContent = 'Not available';
+        }
+        qrCornerPoints.textContent = result.cornerPoints ? 
+            JSON.stringify(result.cornerPoints, null, 2) : 'Not available';
+        qrRawBytes.textContent = result.decoding_data?.rawBytes ? 
+            result.decoding_data.rawBytes.join(', ') : 'Not available';
+        qrProcessedBytes.textContent = result.decoding_data?.correctedBytes ? result.decoding_data.correctedBytes.join(', ') : 'Not available';
+        qrDebugInfo.textContent = result.debugData ? 
+            JSON.stringify(result.debugData, null, 2) : 'Not available';
+        encodingMode.textContent = result.decoding_data?.encodingMode || 'Not available';
+        encodingType.textContent = result.decoding_data?.encodingModeName || 'Not available';
+        messageLength.textContent = result.decoding_data?.messageLength || 'Not available';
+        terminatorBits.textContent = result.decoding_data?.terminatorBits || 'Not available';
+        paddingBits.textContent = result.decoding_data?.paddingBits || 'Not available';
+
+        // Update the highlight effect array to remove qrBinary
+        [
+            fileQrResult, qrVersion, qrErrorCorrection, qrMaskPattern,
+            qrFormat, qrCornerPoints, qrRawBytes,
+            qrProcessedBytes, qrDebugInfo, encodingMode, encodingType, messageLength,
+            terminatorBits, paddingBits
+        ].forEach(element => {
+            element.style.color = 'teal';
+            clearTimeout(element.highlightTimeout);
+            element.highlightTimeout = setTimeout(() => element.style.color = 'inherit', 100);
+        });
+
+        // Add this debug logging
+        console.log('Result object:', result);
+        
+        // Try all possible paths to find the matrix
+        console.log('Full result:', result);
+        
+        var matrix = null;
+        if (result.rawData && result.rawData.matrix) {
+            matrix = result.rawData.matrix;
+        } else if (result.qrMatrix) {
+            matrix = result.qrMatrix;
+        } else if (result.qrData && result.qrData.matrix) {
+            matrix = result.qrData.matrix;
+        } else if (result.debugData && result.debugData.matrix) {
+            matrix = result.debugData.matrix;
+        }
+
+        // Add worker debug information
+        if (result.decoding_data) {
+            console.log('Debug - timing value:', result.decoding_data.debugData?.timing);
+            
+            // Display timing information
+            if (result.decoding_data.debugData?.timing) {
+                const timing = result.decoding_data.debugData.timing;
+                performanceTimingElement.textContent = `${Number(timing).toFixed(2)}ms`;
+            }
+
+        }
+
+        // Add new fields for decoding data
+        if (result.decoding_data) {
+            // Add Raw Binary display
+            document.getElementById('raw-binary').textContent = 
+                result.decoding_data.rawBinaryString || 'Not available';
+            
+            document.getElementById('message-binary').textContent = 
+                result.decoding_data.correctedBytes2Binary || 'Not available';
+            
+            // Format info details
+            const formatInfo = result.decoding_data.formatExtracted;
+            if (formatInfo) {
+                document.getElementById('format-info-details').textContent = JSON.stringify({
+                    actualECLevel: formatInfo.errorCorrectionLevel,
+                    maskPattern: formatInfo.maskPattern,
+                    formatBinary: formatInfo.debug.binaryString,
+                    formatBits1: formatInfo.debug.formatBits1,
+                    formatBits2: formatInfo.debug.formatBits2,
+                    unmaskedBinary: formatInfo.unmaskedBinary,
+                }, null, 2);
+            }
+
+            // Add these elements to the highlight effect
+            [
+                document.getElementById('raw-binary'),
+                document.getElementById('message-binary'),
+                document.getElementById('format-info-details')
+            ].forEach(element => {
+                element.style.color = 'teal';
+                clearTimeout(element.highlightTimeout);
+                element.highlightTimeout = setTimeout(() => element.style.color = 'inherit', 100);
+            });
+
+            // Add number of bits
+            document.getElementById('total_bits').textContent = 
+                `${result.decoding_data.numBits || 'Not available'}`;
+            
+            // Add error correction format
+            qrErrorCorrection.textContent = 
+                result.decoding_data.eccFormat || 'Not available';
+        }
+
+        // Update corner points with formatted display
+        if (result.cornerPoints) {
+            const formattedCornerPoints = result.cornerPoints.map(point => 
+                `(${point.x}, ${point.y})`
+            ).join(' → ');
+            qrCornerPoints.textContent = formattedCornerPoints;
+        } else {
+            qrCornerPoints.textContent = 'Not available';
+        }
+
+        // Debug logging for bitmap matrix
+        console.log('Full result.decoding_data:', result.decoding_data);
+        
+        // Store both sampled and unmasked matrices
+        if (result.decoding_data?.sampledMatrix) {
+            originalSampledMatrix = result.decoding_data.sampledMatrix;
+            console.log('Stored original sampled matrix:', originalSampledMatrix);
+            renderBinaryBitmap(originalSampledMatrix);
+        }
+
+        // Add storage for unmasked matrix
+        if (result.decoding_data?.unmaskedMatrix) {
+            originalUnmaskedMatrix = result.decoding_data.unmaskedMatrix;
+            console.log('Stored original unmasked matrix:', originalUnmaskedMatrix);
+            renderBinaryBitmap(result.decoding_data.unmaskedMatrix, document.getElementById('unmasked-canvas'));
+        }
+
+        // Update debug info with any error messages
+        if (debugMessages.length > 0) {
+            qrDebugInfo.textContent = debugMessages.join('\n');
+        }
+    }
+
+    function bytesToBinary(bytes) {
+        return bytes.map(byte => {
+            // Convert to 8-bit binary string with leading zeros
+            const binary = byte.toString(2).padStart(8, '0');
+            return binary;
+        });
+    }
+
+    // ####### File Scanning #######
+
+    fileSelector.addEventListener('change', event => {
+        const file = event.target.files[0];
+        if (!file) {
+            return;
+        }
+        console.log('Processing file:', file);
+        
+        const imageUrl = URL.createObjectURL(file);
+        const img = new Image();
+        
+        img.onload = async () => {
+            console.log('Image loaded successfully:', img.width, 'x', img.height);
+            // Update preview and dimensions after image has loaded
+            document.getElementById('uploaded-preview').src = imageUrl;
+            document.getElementById('uploaded-preview').style.display = 'inline-block';
+            document.getElementById('original-image-size').textContent = `${img.width}x${img.height} pixels`;
+
+            try {
+                const result = await QrScanner.scanImage(img, {
+                    returnDetailedScanResult: true
+                });
+                console.log('QR Scan result:', result);
+                setResult(result);
+
+                // Fix: Use the correct ID for the toggle switch
+                const generationEnabled = document.getElementById('toggle-generated-pipeline').checked;
+                console.log('Generation pipeline enabled:', generationEnabled);
+                
+                if (generationEnabled && result.data) {
+                    console.log('Running generation pipeline with data:', result.data);
+                    await runGeneratedPipeline(result.data);
+                }
+            } catch (error) {
+                console.error('Scanning failed:', error);
+                setResult({ data: 'Failed to scan QR code: ' + error.message });
+            }
+        };
+
+        img.onerror = () => {
+            console.error('Failed to load image');
+            URL.revokeObjectURL(imageUrl);
+        };
+        
+        img.src = imageUrl;
+    });
+
+    // Add the missing runGeneratedPipeline function
+    async function runGeneratedPipeline(text) {
+        // Build the API URL (using the qrserver API)
+        const apiUrl = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(text)}&size=2000x2000`;
+        const genPreview = document.getElementById('generated-image-preview');
+        genPreview.src = apiUrl;
+        genPreview.style.display = 'inline-block';
+
+        const genImg = new Image();
+        genImg.crossOrigin = "Anonymous";  // Important for CORS
+        genImg.onload = async () => {
+            try {
+                const result = await QrScanner.scanImage(genImg, { returnDetailedScanResult: true });
+                console.log('Generated QR scan result:', result);
+                
+                // Only call setGeneratedResult if we have the original matrix
+                if (originalSampledMatrix && result.decoding_data?.sampledMatrix) {
+                    console.log('Both matrices available, processing difference');
+                    setGeneratedResult(result);
+                } else {
+                    console.log('Missing one or both matrices:', {
+                        hasOriginal: !!originalSampledMatrix,
+                        hasGenerated: !!result.decoding_data?.sampledMatrix
+                    });
+                }
+            } catch (error) {
+                console.error('Generated image scanning failed:', error);
+                setGeneratedResult({ data: 'Failed to scan generated QR code: ' + error.message });
+            }
+        };
+        genImg.onerror = () => {
+            console.error('Failed to load generated image');
+        };
+        genImg.src = apiUrl;
+    }
+
+    function setGeneratedResult(result) {
+        let debugMessages = [];
+
+        // Get existing debug messages if any
+        const existingDebug = document.getElementById('qr-debug-info').textContent;
+        if (existingDebug && existingDebug !== 'None') {
+            debugMessages = existingDebug.split('\n');
+        }
+
+        // Check if generation failed
+        if (!result || !result.data) {
+            debugMessages.push("Error - QR failed to generate");
+        }
+
+        // Check version compatibility for generated QR
+        if (result?.decoding_data?.rawData?.version !== 1) {
+            debugMessages.push("Error - Incompatible version with LQR detected");
+        }
+
+        // Compare ECC levels
+        const generatedECC = result?.decoding_data?.eccFormat;
+        if (window.uploadedECC && generatedECC && window.uploadedECC !== generatedECC) {
+            debugMessages.push("Error - QR ecc mismatch");
+        }
+
+        // Update debug info with combined messages
+        if (debugMessages.length > 0) {
+            document.getElementById('qr-debug-info').textContent = debugMessages.join('\n');
+        }
+
+        if (result.decoding_data?.unmaskedMatrix && originalSampledMatrix) {
+            // Log the generated unmasked matrix
+            const generatedMatrix = result.decoding_data.unmaskedMatrix;
+            console.log('Generated unmasked matrix:', generatedMatrix);
+            
+            // Process the difference between matrices using unmasked matrices
+            if (result.decoding_data?.unmaskedMatrix && originalUnmaskedMatrix) {
+                processMatrixDifference(originalUnmaskedMatrix, result.decoding_data.unmaskedMatrix);
+            } else {
+                console.log('Missing unmasked matrices for difference calculation');
+            }
+
+            // Render unmasked matrix if available
+            if (result.decoding_data?.unmaskedMatrix) {
+                console.log('Rendering unmasked matrix for generated QR');
+                renderBinaryBitmap(result.decoding_data.unmaskedMatrix, document.getElementById('generated-unmasked-canvas'));
+            }
+        } else {
+            console.log('Missing matrices for difference calculation', {
+                originalMatrix: !!originalSampledMatrix,
+                generatedMatrix: !!result.decoding_data?.unmaskedMatrix
+            });
+        }
+    }
+
+    function processMatrixDifference(matrix1, matrix2) {
+        // Add debug logging to see what we're receiving
+        console.log('Processing matrices:', {
+            matrix1: {
+                exists: !!matrix1,
+                dimensions: matrix1 ? `${matrix1.length}x${matrix1[0]?.length}` : 'undefined',
+                sample: matrix1 ? matrix1.slice(0, 3).map(row => row.slice(0, 3)) : null
+            },
+            matrix2: {
+                exists: !!matrix2,
+                dimensions: matrix2 ? `${matrix2.length}x${matrix2[0]?.length}` : 'undefined',
+                sample: matrix2 ? matrix2.slice(0, 3).map(row => row.slice(0, 3)) : null
+            }
+        });
+
+        if (!matrix1?.length || !matrix2?.length || 
+            !matrix1[0]?.length || !matrix2[0]?.length) {
+            console.error('Matrices have different dimensions or are invalid');
+            return;
+        }
+
+        if (matrix1.length !== matrix2.length || 
+            matrix1[0].length !== matrix2[0].length) {
+            console.error('Matrices have mismatched dimensions');
+            return;
+        }
+
+        const size = matrix1.length;
+
+        // Helper function to check if a position is part of timing patterns or format info
+        function shouldIgnorePosition(x, y) {
+            // Timing patterns are at row 6 and column 6
+            if (x === 6 || y === 6) return true;
+
+            // Format information regions
+            // Top-left format info (including dark module at (8,0))
+            if (y <= 8 && x <= 8) return true;
+            // Top-right format info (8x1 strip)
+            if (y === 8 && x >= size - 8) return true;
+            if (x === 8 && y <= 8) return true;
+            // Format info vertical strip near top-right
+            if (x === size - 9 && y <= 9) return true;
+            // Bottom-left format info
+            if (y >= size - 8 && x <= 8) return true;
+
+            return false;
+        }
+
+        // Create difference matrix with ignored regions (unsigned)
+        const diffMatrix = matrix1.map((row, y) =>
+            row.map((val, x) => {
+                if (shouldIgnorePosition(x, y)) {
+                    return 0; // Ignore differences in timing/format regions
+                }
+                return Math.abs(val - matrix2[y][x]);
+            })
+        );
+
+        // Create signed difference matrix
+        const signedDiffMatrix = matrix1.map((row, y) =>
+            row.map((val, x) => {
+                if (shouldIgnorePosition(x, y)) {
+                    return 0;
+                }
+                return matrix2[y][x] - val; // Preserve sign of difference
+            })
+        );
+
+        // Collect coordinates of differences
+        const positiveDiffs = [];
+        const negativeDiffs = [];
+        
+        signedDiffMatrix.forEach((row, y) => {
+            row.forEach((val, x) => {
+                if (val === 1) {
+                    positiveDiffs.push([y, x]);
+                } else if (val === -1) {
+                    negativeDiffs.push([y, x]);
+                }
+            });
+        });
+
+        // Update the coordinate displays
+        document.getElementById('positive-differences').textContent = 
+            positiveDiffs.length > 0 ? 
+            positiveDiffs.map(coord => `(${coord[0]}, ${coord[1]})`).join(', ') : 
+            'None';
+        
+        document.getElementById('negative-differences').textContent = 
+            negativeDiffs.length > 0 ? 
+            negativeDiffs.map(coord => `(${coord[0]}, ${coord[1]})`).join(', ') : 
+            'None';
+
+        console.log('Difference matrices calculated:', {
+            unsigned: diffMatrix,
+            signed: signedDiffMatrix,
+            positiveDiffs,
+            negativeDiffs
+        });
+        
+        renderMatrixDifference(diffMatrix);
+        renderSignedDifference(signedDiffMatrix);
+    }
+
+    function renderMatrixDifference(diffMatrix) {
+        const canvas = document.getElementById('matrix-diff-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Clear canvas
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const matrixSize = diffMatrix.length;
+        const cellSize = Math.min(
+            canvas.width / matrixSize,
+            canvas.height / matrixSize
+        );
+
+        // Calculate offset to center the visualization
+        const xOffset = (canvas.width - (matrixSize * cellSize)) / 2;
+        const yOffset = (canvas.height - (matrixSize * cellSize)) / 2;
+
+        for (let y = 0; y < matrixSize; y++) {
+            for (let x = 0; x < matrixSize; x++) {
+                const diff = diffMatrix[y][x];
+                
+                // Different coloring scheme:
+                // Green: No difference (0)
+                // Red: Difference (1)
+                ctx.fillStyle = diff === 0 ? '#90EE90' : '#FF6B6B';
+                
+                ctx.fillRect(
+                    xOffset + x * cellSize,
+                    yOffset + y * cellSize,
+                    cellSize - 1,
+                    cellSize - 1
+                );
+            }
+        }
+    }
+
+    function renderSignedDifference(signedDiffMatrix) {
+        const canvas = document.getElementById('signed-diff-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Clear canvas
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const matrixSize = signedDiffMatrix.length;
+        const cellSize = Math.min(
+            canvas.width / matrixSize,
+            canvas.height / matrixSize
+        );
+
+        // Calculate offset to center the visualization
+        const xOffset = (canvas.width - (matrixSize * cellSize)) / 2;
+        const yOffset = (canvas.height - (matrixSize * cellSize)) / 2;
+
+        for (let y = 0; y < matrixSize; y++) {
+            for (let x = 0; x < matrixSize; x++) {
+                const diff = signedDiffMatrix[y][x];
+                
+                // Color scheme:
+                // Green: No difference (0)
+                // Red: Positive difference (1) - Generated has extra module
+                // Blue: Negative difference (-1) - Original has extra module
+                let color;
+                switch (diff) {
+                    case 0:
+                        color = '#90EE90'; // Light green
+                        break;
+                    case 1:
+                        color = '#FF6B6B'; // Light red
+                        break;
+                    case -1:
+                        color = '#6B9EFF'; // Light blue
+                        break;
+                    default:
+                        color = '#FFFFFF'; // White for unexpected values
+                }
+                
+                ctx.fillStyle = color;
+                ctx.fillRect(
+                    xOffset + x * cellSize,
+                    yOffset + y * cellSize,
+                    cellSize - 1,
+                    cellSize - 1
+                );
+            }
+        }
+    }
+</script>
+</body>
+</html>
